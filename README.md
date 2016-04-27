@@ -1,6 +1,6 @@
 # Telegram Bot for 2gis
 
-This is very simple telegram bot for 2gis. The bot is available - [here](http://telegram.me/two_gis_bot)
+This is a very simple telegram bot for 2gis. The bot is available - [here](http://telegram.me/two_gis_bot)
 
 # Features
 Ask for an organization and get the list of organizations with their addresses.
