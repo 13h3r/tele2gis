@@ -5,7 +5,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model.{HttpRequest, Uri}
 import akka.stream.{ActorMaterializer, ActorMaterializerSettings, Materializer}
-import akka.util.{ByteString, Timeout}
+import akka.util.ByteString
 import bottele.WebAPI.WebAPIProtocol
 import com.typesafe.config.ConfigFactory
 import spray.json.{DefaultJsonProtocol, JsonFormat, RootJsonFormat}

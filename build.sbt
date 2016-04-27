@@ -2,8 +2,6 @@ import sbt._
 
 lazy val bottele = project in file(".")
 
-//casino.Assembly.settings
-
 val metricsV = "3.0.2"
 
 val akkaV = "2.4.4"
