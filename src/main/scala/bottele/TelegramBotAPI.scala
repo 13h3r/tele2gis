@@ -80,7 +80,6 @@ trait TelegramBotAPI {
   }
 
   private def execute[T : JsonFormat](request: HttpRequest)(implicit ec: ExecutionContext) = {
-    println(request)
     http
       .singleRequest(request)
       .flatMap { resp =>

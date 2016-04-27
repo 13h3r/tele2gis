@@ -17,6 +17,7 @@ object Bot extends App {
   val teleApi = TelegramBotAPI(as.settings.config.getString("telegram.token"))
 
   val (control, result) = UpdatesSource(teleApi)
+    .map { x => println(s"Got update $x"); x }
     .collect {
       case Update(_, Some(Message(_, _, _, Chat(id), Some(text)))) => (id, text)
     }

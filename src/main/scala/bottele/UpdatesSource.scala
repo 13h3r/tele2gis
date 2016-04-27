@@ -39,7 +39,7 @@ class UpdatesSource(api: TelegramBotAPI)(implicit as: ActorSystem) extends Graph
             import as.dispatcher
             api
               .getUpdates(offset = offset, timeout = Some(5))
-              .onComplete { x => println(x); updatesCallback.invoke(x) }
+              .onComplete(updatesCallback.invoke)
           }
         }
       }
