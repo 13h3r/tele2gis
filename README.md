@@ -4,7 +4,7 @@ Telegram Bot for 2gis
 This is very simple telegram bot for 2gis. 
 
 # Features
-Ask for an organisation and get list of organisations with their addresses
+Ask for an organization and get list of organizations with their addresses.
 
 # How to run
 Prepare config
