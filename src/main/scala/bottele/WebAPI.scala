@@ -29,16 +29,18 @@ object WebAPI {
   case class Meta(code: Int, error: Option[MetaError])
   case class MetaError(`type`: String, message: String)
 
+  case class Point(lon: Double, lat: Double)
   case class Contact(`type`: String, text: String, comment: Option[String])
   case class ContactGroups(contacts: Seq[Contact])
-  case class Branch(id: String, name: String, address_name: Option[String], contact_groups: Option[Seq[ContactGroups]])
+  case class Branch(id: String, name: String, address_name: Option[String], contact_groups: Option[Seq[ContactGroups]], point: Option[Point])
   case class BranchPayload(items: Seq[Branch])
   case class Search(total: Long, items: Seq[Branch])
 
   trait WebAPIProtocol extends DefaultJsonProtocol {
     implicit val contactFormat = jsonFormat3(Contact)
+    implicit val pointFormat = jsonFormat2(Point)
     implicit val contactGroupsFormat = jsonFormat1(ContactGroups)
-    implicit val branchFormat = jsonFormat4(Branch)
+    implicit val branchFormat = jsonFormat5(Branch)
     implicit val branchPayloadFormat = jsonFormat1(BranchPayload)
     implicit val metaErrorFormat = jsonFormat2(MetaError)
     implicit val metaFormat = jsonFormat2(Meta)
@@ -68,7 +70,8 @@ trait WebAPI {
       Uri(s"http://$host/2.0/catalog/branch/get").withQuery(Query(
         "id" -> ids.mkString(","),
         "key" -> key,
-        "format" -> "json"
+        "format" -> "json",
+        "fields" -> "items.point"
       ))
     )
   }

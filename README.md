@@ -3,7 +3,8 @@
 This is a very simple telegram bot for 2gis. The bot is available - [here](http://telegram.me/two_gis_bot)
 
 # Features
-Ask for an organization and get the list of organizations with their addresses.
+* Ask your question and get the list of organizations
+* Get phone and location for found organization
 
 # Technologies
 The bot is fully asynchronous and non-blocking. Akka-stream and akka-http used.

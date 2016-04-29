@@ -20,14 +20,14 @@ object Bot extends App {
 
   val (control, result) = UpdatesSource(teleApi)
     .map { x => println(s"Got update $x"); x }
-    .mapAsync(1) { msg =>
+    .mapAsync(10) { msg =>
       val chatId = msg.message.map(_.chat.id)
         .orElse(msg.callbackQuery.flatMap(_.message.map(_.chat.id)))
       chatId.map { chatId =>
         teleApi.sendChatActionTyping(chatId).map(_ => msg)
       }.getOrElse(Future.successful(msg))
     }
-    .mapAsync(1)(Handler.apply)
+    .mapAsync(10)(Handler.apply)
     .toMat(Sink.ignore)(Keep.both)
     .run()
 
@@ -44,13 +44,14 @@ object Bot extends App {
       case u if u.message.isDefined && u.message.get.text.isDefined =>
         search(u.message.get.chat.id, u.message.get.text.get)
       case Update(_ ,_ ,_, Some(callback)) =>
-        info(callback.from.id, callback.data)
+        info(callback.from.id, callback.data, callback.id.toLong)
       case _ => Future.successful(Done)
     }
 
-    def info(chatId: Long, filial: String): Future[Done] = {
+    def info(chatId: Long, filial: String, callbackId: Long): Future[Done] = {
       trait Reply
-      case class Info(name: String, phones: Iterable[String]) extends Reply
+      case class Location(lon: Double, lat: Double)
+      case class Info(name: String, phones: Iterable[String], location: Option[Location]) extends Reply
       object NotFound extends Reply
       object InternalError extends Reply
       webApi
@@ -66,23 +67,31 @@ object Bot extends App {
                   contact <- groups.contacts
                   if contact.`type` == "phone"
                 } yield contact.text
-                Info(branch.name, phones)
+                val location = branch.point.map(p => Location(p.lon, p.lat))
+                Info(branch.name, phones, location)
               }.getOrElse(NotFound)
           }
         }
         .map {
-          case NotFound => SendMessage(chatId, "Увы, мы ничего не нашли")
-          case InternalError => SendMessage(chatId, "Что-то пошло не так")
-          case Info(name, phones) =>
+          case NotFound => teleApi.sendMessage(SendMessage(chatId, "Увы, мы ничего не нашли"))
+          case InternalError => teleApi.sendMessage(SendMessage(chatId, "Что-то пошло не так"))
+          case Info(name, phones, location) =>
             val phonesText = Option(phones)
               .filter(_.nonEmpty)
               .map(_.mkString(", "))
               .map(p => s"Позвонить: $p\n")
               .getOrElse("")
             val text = s"$name\n$phonesText"
-            SendMessage(chatId, text)
+
+            for {
+              callbackF <- teleApi.answerCallbackQuery(callbackId)
+              msgF <- teleApi.sendMessage(SendMessage(chatId, text))
+              locatF <- location.map {
+                case Location(lon, lat) =>
+                  teleApi.sendLocation(SendLocation(chatId, lat, lon))
+              }.getOrElse(Future.successful(Done))
+            } yield Done
         }
-        .flatMap(teleApi.sendMessage)
         .map(_ => Done)
     }
 

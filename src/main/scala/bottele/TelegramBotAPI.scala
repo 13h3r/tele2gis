@@ -23,6 +23,7 @@ object TelegramBotAPI {
   case class User(id: Long, firstName: String, lastName: Option[String], username: Option[String])
   case class Chat(id: Long)
   case class SendMessage(chatId: Long, text: String, replyMarkup: Option[ReplyMarkup] = None)
+  case class SendLocation(chatId: Long, latitude: Double, longitude: Double)
   case class Message(messageId: Long, from: Option[User], date: Long, chat: Chat, text: Option[String])
   case class Update(updateId: Long, message: Option[Message], chosenInlineResult: Option[ChosenInlineResult], callbackQuery: Option[CallbackQuery])
 
@@ -57,6 +58,7 @@ object TelegramBotAPI {
     implicit val json_message = jsonFormat5(Message)
     implicit val json_callbackQuery= jsonFormat5(CallbackQuery)
     implicit val json_sendMessage = jsonFormat3(SendMessage)
+    implicit val json_sendLocation = jsonFormat3(SendLocation)
     implicit val json_update = jsonFormat4(Update)
   }
   object JsonProtocol extends TelegramBotAPI.JsonProtocol
@@ -91,6 +93,13 @@ trait TelegramBotAPI {
     ))
   }
 
+  def sendLocation(msg: SendLocation)(implicit ec: ExecutionContext): Future[Message] = {
+    val uri = Uri(basePath + "/sendLocation")
+    execute[Message](HttpRequest(uri = uri).withEntity(
+      HttpEntity(ContentTypes.`application/json`, msg.toJson.prettyPrint)
+    ))
+  }
+
   def getUpdates(
     offset: Option[Long] = None,
     limit: Option[Long] = None,
@@ -105,7 +114,15 @@ trait TelegramBotAPI {
     execute[Seq[Update]](HttpRequest(uri = uri))
   }
 
-  private def execute[T : JsonFormat](request: HttpRequest)(implicit ec: ExecutionContext) = {
+  def answerCallbackQuery(callbackQueryId: Long, text: Option[String] = None)(implicit ec: ExecutionContext): Future[Unit] = {
+    val uri = Uri(basePath + "/answerCallbackQuery").withQuery(Query(
+      Map("callback_query_id" -> callbackQueryId.toString) ++
+        optionToMap("text", text)
+    ))
+    executeHTTP(HttpRequest(uri = uri)).map(_ => ())
+  }
+
+  private def executeHTTP(request: HttpRequest)(implicit ec: ExecutionContext) = {
     http
       .singleRequest(request)
       .flatMap { resp =>
@@ -119,6 +136,9 @@ trait TelegramBotAPI {
           Future.failed(ApiException(s"Wrong http code - ${resp.status}\n${descr}", request))
         }
       }
+  }
+  private def execute[T : JsonFormat](request: HttpRequest)(implicit ec: ExecutionContext) = {
+    executeHTTP(request)
       .flatMap { bytes =>
         import spray.json._
         val response = bytes.utf8String.parseJson.convertTo[ServerResponse]
