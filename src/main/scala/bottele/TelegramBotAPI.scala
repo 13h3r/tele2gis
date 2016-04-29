@@ -3,13 +3,14 @@ package bottele
 import akka.actor.ActorSystem
 import akka.http.scaladsl.{Http, HttpExt}
 import akka.http.scaladsl.model.Uri.Query
-import akka.http.scaladsl.model.{ContentTypes, HttpRequest, HttpResponse, Uri}
+import akka.http.scaladsl.model._
 import akka.stream.{ActorMaterializer, ActorMaterializerSettings, Materializer}
 import akka.util.ByteString
-import spray.json.{DefaultJsonProtocol, JsValue, JsonFormat}
+import spray.json.{DefaultJsonProtocol, JsValue, JsonFormat, JsonReader, JsonWriter}
 
 import scala.collection.immutable.{Map, Seq}
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 object TelegramBotAPI {
   def apply(botKey: String)(implicit as: ActorSystem) = new TelegramBotAPI {
@@ -21,8 +22,16 @@ object TelegramBotAPI {
   case class ServerResponse(ok: Boolean, result: JsValue)
   case class User(id: Long, firstName: String, lastName: Option[String], username: Option[String])
   case class Chat(id: Long)
+  case class SendMessage(chatId: Long, text: String, replyMarkup: Option[ReplyMarkup] = None)
   case class Message(messageId: Long, from: Option[User], date: Long, chat: Chat, text: Option[String])
-  case class Update(updateId: Long, message: Option[Message])
+  case class Update(updateId: Long, message: Option[Message], chosenInlineResult: Option[ChosenInlineResult], callbackQuery: Option[CallbackQuery])
+
+  trait ReplyMarkup
+  case class InlineKeyboardButton(text: String, url: Option[String], callbackData: Option[String])
+  case class InlineKeyboardMarkup(inlineKeyboard: List[List[InlineKeyboardButton]]) extends ReplyMarkup
+  case class ChosenInlineResult(resultId: String, from: User, inlineMessageId: Option[String], query: String)
+
+  case class CallbackQuery(id: String, from: User, message: Option[Message], inlineMessageId: Option[String], data: String)
   //
   case class ApiException(text: String, req: HttpRequest) extends Exception(s"$text\n$req\n")
 
@@ -30,8 +39,25 @@ object TelegramBotAPI {
     implicit val json_serverResponse = jsonFormat2(ServerResponse)
     implicit val json_chat = jsonFormat1(Chat)
     implicit val json_user = jsonFormat4(User)
+    implicit val json_chosenInlineResult = jsonFormat4(ChosenInlineResult)
+    implicit val json_replyMarkup = {
+      implicit val json_inline_button = jsonFormat3(InlineKeyboardButton)
+      implicit val json_inline = jsonFormat1(InlineKeyboardMarkup)
+      jsonFormat[ReplyMarkup](
+        new JsonReader[ReplyMarkup] {
+          override def read(json: JsValue): ReplyMarkup = ???
+        },
+        new JsonWriter[ReplyMarkup] {
+          override def write(obj: ReplyMarkup): JsValue = obj match {
+            case m: InlineKeyboardMarkup => json_inline.write(m)
+          }
+        }
+      )
+    }
     implicit val json_message = jsonFormat5(Message)
-    implicit val json_update = jsonFormat2(Update)
+    implicit val json_callbackQuery= jsonFormat5(CallbackQuery)
+    implicit val json_sendMessage = jsonFormat3(SendMessage)
+    implicit val json_update = jsonFormat4(Update)
   }
   object JsonProtocol extends TelegramBotAPI.JsonProtocol
 }
@@ -39,6 +65,7 @@ object TelegramBotAPI {
 trait TelegramBotAPI {
   import TelegramBotAPI._
   import JsonProtocol._
+  import spray.json._
 
   protected val http: HttpExt
   protected implicit val m: Materializer
@@ -57,12 +84,11 @@ trait TelegramBotAPI {
     execute[JsValue](HttpRequest(uri = uri))
   }
 
-  def sendMessage(chatId: Long, text: String)(implicit ec: ExecutionContext): Future[Message] = {
-    val uri = Uri(basePath + "/sendMessage").withQuery(Query(
-      "chat_id" -> chatId.toString,
-      "text" -> text
+  def sendMessage(msg: SendMessage)(implicit ec: ExecutionContext): Future[Message] = {
+    val uri = Uri(basePath + "/sendMessage")
+    execute[Message](HttpRequest(uri = uri).withEntity(
+      HttpEntity(ContentTypes.`application/json`, msg.toJson.prettyPrint)
     ))
-    execute[Message](HttpRequest(uri = uri))
   }
 
   def getUpdates(
@@ -83,11 +109,15 @@ trait TelegramBotAPI {
     http
       .singleRequest(request)
       .flatMap { resp =>
+        val body = resp.entity.dataBytes.runFold(ByteString(""))(_ ++ _)
         if(resp.status.isSuccess()) {
           if(resp.entity.contentType == ContentTypes.`application/json`) {
-            resp.entity.dataBytes.runFold(ByteString(""))(_ ++ _)
+            body
           } else Future.failed(ApiException(s"Wrong content type - ${resp.entity.contentType}", request))
-        } else Future.failed(ApiException(s"Wrong http code - ${resp.status}", request))
+        } else {
+          val descr = Await.result(body, 1.seconds).utf8String
+          Future.failed(ApiException(s"Wrong http code - ${resp.status}\n${descr}", request))
+        }
       }
       .flatMap { bytes =>
         import spray.json._

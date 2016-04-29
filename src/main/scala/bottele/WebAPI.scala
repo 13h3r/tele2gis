@@ -29,12 +29,16 @@ object WebAPI {
   case class Meta(code: Int, error: Option[MetaError])
   case class MetaError(`type`: String, message: String)
 
-  case class Branch(id: String, name: String, address_name: Option[String])
+  case class Contact(`type`: String, text: String, comment: Option[String])
+  case class ContactGroups(contacts: Seq[Contact])
+  case class Branch(id: String, name: String, address_name: Option[String], contact_groups: Option[Seq[ContactGroups]])
   case class BranchPayload(items: Seq[Branch])
   case class Search(total: Long, items: Seq[Branch])
 
   trait WebAPIProtocol extends DefaultJsonProtocol {
-    implicit val branchFormat = jsonFormat3(Branch)
+    implicit val contactFormat = jsonFormat3(Contact)
+    implicit val contactGroupsFormat = jsonFormat1(ContactGroups)
+    implicit val branchFormat = jsonFormat4(Branch)
     implicit val branchPayloadFormat = jsonFormat1(BranchPayload)
     implicit val metaErrorFormat = jsonFormat2(MetaError)
     implicit val metaFormat = jsonFormat2(Meta)
@@ -93,6 +97,7 @@ trait WebAPI {
   ): Future[Either[ApiError, T]] =
   {
     import spray.json._
+    println(uri)
     http.singleRequest(HttpRequest(uri = uri))
       .flatMap { resp =>
         if(resp.status.isSuccess) resp.entity.dataBytes.runFold(ByteString(""))(_ ++ _)
