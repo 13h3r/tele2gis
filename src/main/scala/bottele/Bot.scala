@@ -28,7 +28,7 @@ object Bot extends App {
         teleApi.sendChatActionTyping(chatId).map(_ => msg)
       }.getOrElse(Future.successful(msg))
     }
-    .mapAsync(10) { update => Router.apply(update))
+    .mapAsync(10) { update => Router.apply(update) }
     .toMat(Sink.ignore)(Keep.both)
     .run()
 

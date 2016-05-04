@@ -18,7 +18,9 @@ object Router {
 }
 
 object Info {
-  def apply(chatId: Long, filial: String, callbackId: Option[Long])(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI): Future[Done] = {
+  def apply(chatId: Long, filial: String, callbackId: Option[Long])
+    (implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI
+  ): Future[Done] = {
     trait Reply
     case class Location(lon: Double, lat: Double)
     case class Info(name: String, phones: Iterable[String], location: Option[Location]) extends Reply
@@ -28,7 +30,7 @@ object Info {
       .map { branches =>
         branches match {
           case Left(ApiError(404, _, _)) => NotFound
-          case Left(ApiError(_, _, _)) => InternalError
+          case Left(error) => throw error
           case Right(branches) =>
             branches.items.headOption.map { branch =>
               val phones = for {
@@ -103,8 +105,10 @@ object Search {
           )
         }
       }
-      .map(reply => renderReply(Reply(chatId, reply)))
-      .flatMap(teleApi.sendMessage)
+      .map {
+        case Firms(firm :: Nil) => Info(chatId, firm.id, None)
+        case reply => teleApi.sendMessage(renderReply(Reply(chatId, reply)))
+      }
       .map(_ => Done)
   }
 
