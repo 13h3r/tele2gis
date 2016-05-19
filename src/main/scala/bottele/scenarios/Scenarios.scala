@@ -1,6 +1,7 @@
 package bottele.scenarios
 
 import akka.Done
+import akka.stream.stage.GraphStageLogic.SubSourceOutlet
 import bottele.{TelegramBotAPI, WebAPI}
 import bottele.TelegramBotAPI._
 import bottele.WebAPI.ApiError
@@ -13,18 +14,20 @@ object Router {
       Search(u.message.get.chat.id, u.message.get.text.get)
     case Update(_ ,_ ,_, Some(callback)) =>
       Info(callback.from.id, callback.data, Some(callback.id.toLong))
-    case _ => Future.successful(Done)
+    case unknown =>
+      Future.successful(Done)
   }
 }
 
 object Info {
+  trait Reply
+  case class Location(lon: Double, lat: Double)
+  case class Info(name: String, phones: Iterable[String], location: Option[Location]) extends Reply
+  object NotFound extends Reply
+
   def apply(chatId: Long, filial: String, callbackId: Option[Long])
     (implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI
   ): Future[Done] = {
-    trait Reply
-    case class Location(lon: Double, lat: Double)
-    case class Info(name: String, phones: Iterable[String], location: Option[Location]) extends Reply
-    object NotFound extends Reply
     webApi
       .branches(Seq(filial.toLong))
       .map { branches =>
@@ -111,5 +114,4 @@ object Search {
       }
       .map(_ => Done)
   }
-
 }
