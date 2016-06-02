@@ -18,6 +18,7 @@ object WebAPI {
   def apply(as: ActorSystem) = new WebAPI {
     val actorSystem = as
   }
+
   case class Response[T](meta: Meta, result: Option[T]) {
     def toEither: Either[ApiError, T] = this match {
       case Response(Meta(200, _), Some(_result)) => Right(_result)
@@ -28,13 +29,14 @@ object WebAPI {
   case class ApiError(code: Int, `type`: String, message: String) extends Exception(s"Api error. Code $code, type ${`type`}, message $message")
   case class Meta(code: Int, error: Option[MetaError])
   case class MetaError(`type`: String, message: String)
-
   case class Point(lon: Double, lat: Double)
   case class Contact(`type`: String, text: String, comment: Option[String])
   case class ContactGroups(contacts: Seq[Contact])
   case class Branch(id: String, name: String, address_name: Option[String], contact_groups: Option[Seq[ContactGroups]], point: Option[Point])
   case class BranchPayload(items: Seq[Branch])
   case class Search(total: Long, items: Seq[Branch])
+  case class RegionItem(name: String, id: String, `type`: String)
+  case class RegionPayload(items: Seq[RegionItem])
 
   trait WebAPIProtocol extends DefaultJsonProtocol {
     implicit val contactFormat = jsonFormat3(Contact)
@@ -45,8 +47,11 @@ object WebAPI {
     implicit val metaErrorFormat = jsonFormat2(MetaError)
     implicit val metaFormat = jsonFormat2(Meta)
     implicit val searchFormat = jsonFormat2(Search)
+    implicit val regionFormat = jsonFormat3(RegionItem)
+    implicit val regionPayloadFormat = jsonFormat1(RegionPayload)
     implicit val branchResponseFormat: RootJsonFormat[Response[BranchPayload]] = jsonFormat2(Response[BranchPayload])
     implicit val searchResponseFormat: RootJsonFormat[Response[Search]] = jsonFormat2(Response[Search])
+    implicit val regionResponseFormat: RootJsonFormat[Response[RegionPayload]] = jsonFormat2(Response[RegionPayload])
   }
 }
 
@@ -76,9 +81,17 @@ trait WebAPI {
     )
   }
 
+  def regionSearch(q: String)(implicit ec: ExecutionContext) = {
+    execute[RegionPayload](
+      Uri(s"http://$host/2.0/region/search").withQuery(Query(
+        "key" -> key,
+        "q" -> q
+      ))
+    )
+  }
+
   def searchBranches(q: String, project: Int, page: Option[Int] = None, pageSize: Option[Int] = None)
-                    (implicit ec: ExecutionContext) =
-  {
+                    (implicit ec: ExecutionContext) = {
     execute[Search](
       Uri(s"http://$host/2.0/catalog/branch/search").withQuery(Query(Map(
         "key" -> key,
@@ -86,7 +99,7 @@ trait WebAPI {
         "q" -> q,
         "region_id" -> project.toString
       ) ++ optionToMap("page", page) ++ optionToMap("page_size", pageSize)
-    ))).map {
+      ))).map {
       case Left(ApiError(404, _, _)) => Search(0, Seq.empty)
       case Left(ex) => throw ex
       case Right(result) => result
@@ -97,16 +110,17 @@ trait WebAPI {
   private def execute[T](uri: Uri)(implicit
                                    ec: ExecutionContext,
                                    converter: JsonFormat[Response[T]]
-  ): Future[Either[ApiError, T]] =
-  {
+  ): Future[Either[ApiError, T]] = {
     import spray.json._
     println(uri)
     http.singleRequest(HttpRequest(uri = uri))
       .flatMap { resp =>
-        if(resp.status.isSuccess) resp.entity.dataBytes.runFold(ByteString(""))(_ ++ _)
+        if (resp.status.isSuccess) resp.entity.dataBytes.runFold(ByteString(""))(_ ++ _)
         else Future.failed(new Exception(s"Got ${resp.status.intValue} HTTP code from API during request - ${uri.toString()}"))
       }
-      .map { _.utf8String.parseJson.asJsObject().convertTo[Response[T]].toEither }
+      .map {
+        _.utf8String.parseJson.asJsObject().convertTo[Response[T]].toEither
+      }
   }
 }
 

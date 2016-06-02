@@ -1,7 +1,6 @@
 package bottele.scenarios
 
 import akka.Done
-import akka.stream.stage.GraphStageLogic.SubSourceOutlet
 import bottele.{TelegramBotAPI, WebAPI}
 import bottele.TelegramBotAPI._
 import bottele.WebAPI.ApiError
@@ -9,7 +8,14 @@ import bottele.WebAPI.ApiError
 import scala.concurrent.{ExecutionContext, Future}
 
 object Router {
-  def apply(update: Update)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI): Future[Done] = update match {
+  def apply(update: Update)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI): Future[Any] = update match {
+    case u if u.message.isDefined && u.message.get.text.isDefined && u.message.get.text.get.startsWith("/city ") =>
+      val city = u.message.get.text.get.substring(5).trim
+      webApi.regionSearch(city).flatMap {
+        case Left(error) => throw error
+        case Right(regions) =>
+          teleApi.sendMessage(TelegramBotAPI.SendMessage(u.message.get.chat.id, regions.items.map(_.name).mkString(", ")))
+      }
     case u if u.message.isDefined && u.message.get.text.isDefined =>
       Search(u.message.get.chat.id, u.message.get.text.get)
     case Update(_ ,_ ,_, Some(callback)) =>
@@ -22,7 +28,7 @@ object Router {
 object Info {
   trait Reply
   case class Location(lon: Double, lat: Double)
-  case class Info(name: String, phones: Iterable[String], location: Option[Location]) extends Reply
+  case class Info(name: String, address: Option[String], phones: Iterable[String], location: Option[Location]) extends Reply
   object NotFound extends Reply
 
   def apply(chatId: Long, filial: String, callbackId: Option[Long])
@@ -30,31 +36,30 @@ object Info {
   ): Future[Done] = {
     webApi
       .branches(Seq(filial.toLong))
-      .map { branches =>
-        branches match {
-          case Left(ApiError(404, _, _)) => NotFound
-          case Left(error) => throw error
-          case Right(branches) =>
-            branches.items.headOption.map { branch =>
-              val phones = for {
-                groups <- branch.contact_groups.toSeq.flatten
-                contact <- groups.contacts
-                if contact.`type` == "phone"
-              } yield contact.text
-              val location = branch.point.map(p => Location(p.lon, p.lat))
-              Info(branch.name, phones, location)
-            }.getOrElse(NotFound)
-        }
+      .map {
+        case Left(ApiError(404, _, _)) => NotFound
+        case Left(error) => throw error
+        case Right(branches) =>
+          branches.items.headOption.map { branch =>
+            val phones = for {
+              groups <- branch.contact_groups.toSeq.flatten
+              contact <- groups.contacts
+              if contact.`type` == "phone"
+            } yield contact.text
+            val location = branch.point.map(p => Location(p.lon, p.lat))
+            Info(branch.name, branch.address_name, phones, location)
+          }.getOrElse(NotFound)
       }
       .map {
         case NotFound => teleApi.sendMessage(SendMessage(chatId, "Увы, мы ничего не нашли"))
-        case Info(name, phones, location) =>
+        case Info(name, address, phones, location) =>
           val phonesText = Option(phones)
             .filter(_.nonEmpty)
             .map(_.mkString(", "))
-            .map(p => s"Позвонить: $p\n")
+            .map(p => s"\nТелефон: $p")
             .getOrElse("")
-          val text = s"$name\n$phonesText"
+          val addressText = address.map("\nАдрес: " + _).getOrElse("")
+          val text = s"$name$addressText$phonesText"
 
           for {
             callbackF <- callbackId.map(teleApi.answerCallbackQuery(_, None)).getOrElse(Future.successful(()))
