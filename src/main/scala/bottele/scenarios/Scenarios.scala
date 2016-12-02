@@ -7,14 +7,37 @@ import bottele.WebAPI.ApiError
 
 import scala.concurrent.{ExecutionContext, Future}
 
+
+object Command {
+  def unapplier[T](command: String, creator: String => T): (Update) => Option[T] = {
+    val pattern = s"/$command "
+    (update: Update) =>
+      for {
+        msg <- update.message
+        text <- msg.text
+        if text.startsWith(pattern)
+      } yield creator(text.substring(pattern.length))
+  }
+}
+
+object CityCommand {
+  def unapply(in: Update) = Command.unapplier("/city", str => new CityCommand(str.trim))(in)
+}
+
+class CityCommand(val text: String)
+
 object Router {
   def apply(update: Update)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI): Future[Any] = update match {
-    case u if u.message.isDefined && u.message.get.text.isDefined && u.message.get.text.get.startsWith("/city ") =>
-      val city = u.message.get.text.get.substring(5).trim
-      webApi.regionSearch(city).flatMap {
+    case CityCommand(cmd) =>
+      webApi.regionSearch(cmd.text).flatMap {
         case Left(error) => throw error
         case Right(regions) =>
-          teleApi.sendMessage(TelegramBotAPI.SendMessage(u.message.get.chat.id, regions.items.map(_.name).mkString(", ")))
+          teleApi.sendMessage(
+            TelegramBotAPI.SendMessage(
+              update.message.get.chat.id,
+              regions.items.map(_.name).mkString(", ")
+            )
+          )
       }
     case u if u.message.isDefined && u.message.get.text.isDefined =>
       Search(u.message.get.chat.id, u.message.get.text.get)
