@@ -52,7 +52,7 @@ class UpdatesSource(api: TelegramBotAPI)(implicit as: ActorSystem) extends Graph
 
       val updatesCallback = getAsyncCallback[Try[Seq[Update]]] {
         case Success(updates) =>
-          offset = updates.lastOption.map(_.updateId + 1).orElse(offset)
+          offset = updates.lastOption.map(_.updateId.id + 1).orElse(offset)
           buffer = buffer.enqueue(updates)
           pump()
         case Failure(ex) => fail(out, ex)

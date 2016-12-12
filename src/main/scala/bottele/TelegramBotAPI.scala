@@ -19,24 +19,46 @@ object TelegramBotAPI {
     override protected val http: HttpExt = Http(as)
   }
 
+  case class UserId(id: Long) extends AnyVal
+  case class ChatId(id: Long) extends AnyVal
+  case class MessageId(id: Long) extends AnyVal
+  case class UpdateId(id: Long) extends AnyVal
+  case class CallbackId(id: String) extends AnyVal
+
   case class ServerResponse(ok: Boolean, result: JsValue)
-  case class User(id: Long, firstName: String, lastName: Option[String], username: Option[String])
-  case class Chat(id: Long)
-  case class SendMessage(chatId: Long, text: String, replyMarkup: Option[ReplyMarkup] = None)
-  case class SendLocation(chatId: Long, latitude: Double, longitude: Double)
-  case class Message(messageId: Long, from: Option[User], date: Long, chat: Chat, text: Option[String])
-  case class Update(updateId: Long, message: Option[Message], chosenInlineResult: Option[ChosenInlineResult], callbackQuery: Option[CallbackQuery])
+  case class User(id: UserId, firstName: String, lastName: Option[String], username: Option[String])
+  case class Chat(id: ChatId)
+  case class SendMessage(chatId: Either[ChatId, UserId], text: String, replyMarkup: Option[ReplyMarkup] = None)
+  case class SendLocation(chatId: Either[ChatId, UserId], latitude: Double, longitude: Double)
+  case class Message(messageId: MessageId, from: Option[User], date: Long, chat: Chat, text: Option[String])
+  case class Update(updateId: UpdateId, message: Option[Message], chosenInlineResult: Option[ChosenInlineResult], callbackQuery: Option[CallbackQuery])
 
   trait ReplyMarkup
   case class InlineKeyboardButton(text: String, url: Option[String], callbackData: Option[String])
   case class InlineKeyboardMarkup(inlineKeyboard: List[List[InlineKeyboardButton]]) extends ReplyMarkup
   case class ChosenInlineResult(resultId: String, from: User, inlineMessageId: Option[String], query: String)
 
-  case class CallbackQuery(id: String, from: User, message: Option[Message], inlineMessageId: Option[String], data: String)
+  case class CallbackQuery(id: CallbackId, from: User, message: Option[Message], inlineMessageId: Option[String], data: String)
   //
   case class ApiException(text: String, req: HttpRequest) extends Exception(s"$text\n$req\n")
 
   trait JsonProtocol extends DefaultJsonProtocol with SnakifiedSprayJsonSupport {
+
+    def wrapper[Result, Inner](to: Inner => Result, from: Result => Inner)(implicit f: JsonFormat[Inner]): JsonFormat[Result] = new JsonFormat[Result] {
+      override def write(obj: Result): JsValue = {
+        f.write(from(obj))
+      }
+      override def read(json: JsValue): Result = {
+        to(f.read(json))
+      }
+    }
+
+    implicit val json_messageId = wrapper[MessageId, Long](MessageId.apply, _.id)
+    implicit val json_userId = wrapper[UserId, Long](UserId.apply, _.id)
+    implicit val json_chatId = wrapper[ChatId, Long](ChatId.apply, _.id)
+    implicit val json_updateId = wrapper[UpdateId, Long](UpdateId.apply, _.id)
+    implicit val json_callbackId = wrapper[CallbackId, String](CallbackId.apply, _.id)
+
     implicit val json_serverResponse = jsonFormat2(ServerResponse)
     implicit val json_chat = jsonFormat1(Chat)
     implicit val json_user = jsonFormat4(User)
@@ -78,9 +100,9 @@ trait TelegramBotAPI {
     value.map(x => Map(key -> x.toString)).getOrElse(Map.empty)
   }
 
-  def sendChatActionTyping(chatId: Long)(implicit ec: ExecutionContext) = {
+  def sendChatActionTyping(chatId: ChatId)(implicit ec: ExecutionContext) = {
     val uri = Uri(basePath + "/sendChatAction").withQuery(Query(
-      "chat_id" -> chatId.toString,
+      "chat_id" -> chatId.id.toString,
       "action" -> "typing"
     ))
     execute[JsValue](HttpRequest(uri = uri))
@@ -114,9 +136,9 @@ trait TelegramBotAPI {
     execute[Seq[Update]](HttpRequest(uri = uri))
   }
 
-  def answerCallbackQuery(callbackQueryId: Long, text: Option[String] = None)(implicit ec: ExecutionContext): Future[Unit] = {
+  def answerCallbackQuery(callbackQueryId: CallbackId, text: Option[String] = None)(implicit ec: ExecutionContext): Future[Unit] = {
     val uri = Uri(basePath + "/answerCallbackQuery").withQuery(Query(
-      Map("callback_query_id" -> callbackQueryId.toString) ++
+      Map("callback_query_id" -> callbackQueryId.id) ++
         optionToMap("text", text)
     ))
     executeHTTP(HttpRequest(uri = uri)).map(_ => ())
@@ -138,6 +160,7 @@ trait TelegramBotAPI {
       }
   }
   private def execute[T : JsonFormat](request: HttpRequest)(implicit ec: ExecutionContext) = {
+    println(request)
     executeHTTP(request)
       .flatMap { bytes =>
         import spray.json._

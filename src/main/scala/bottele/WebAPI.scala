@@ -16,7 +16,7 @@ import scala.concurrent.{ExecutionContext, Future}
 
 object WebAPI {
   def apply(as: ActorSystem) = new WebAPI {
-    val actorSystem = as
+    val actorSystem: ActorSystem = as
   }
 
   case class Response[T](meta: Meta, result: Option[T]) {
@@ -37,6 +37,8 @@ object WebAPI {
   case class Search(total: Long, items: Seq[Branch])
   case class RegionItem(name: String, id: String, `type`: String)
   case class RegionPayload(items: Seq[RegionItem])
+  case class RegionInfoPayload(items: List[RegionInfo])
+  case class RegionInfo(name: String, id: String, `type`: String)
 
   trait WebAPIProtocol extends DefaultJsonProtocol {
     implicit val contactFormat = jsonFormat3(Contact)
@@ -49,9 +51,12 @@ object WebAPI {
     implicit val searchFormat = jsonFormat2(Search)
     implicit val regionFormat = jsonFormat3(RegionItem)
     implicit val regionPayloadFormat = jsonFormat1(RegionPayload)
+    implicit val regionInfo = jsonFormat3(RegionInfo)
+    implicit val regionInfoPayload = jsonFormat1(RegionInfoPayload)
     implicit val branchResponseFormat: RootJsonFormat[Response[BranchPayload]] = jsonFormat2(Response[BranchPayload])
     implicit val searchResponseFormat: RootJsonFormat[Response[Search]] = jsonFormat2(Response[Search])
     implicit val regionResponseFormat: RootJsonFormat[Response[RegionPayload]] = jsonFormat2(Response[RegionPayload])
+    implicit val regionInfoResponseFormat: RootJsonFormat[Response[RegionInfoPayload]] = jsonFormat2(Response[RegionInfoPayload])
   }
 }
 
@@ -70,7 +75,7 @@ trait WebAPI {
     value.map(x => Map(key -> x.toString)).getOrElse(Map.empty)
   }
 
-  def branches(ids: Seq[Long])(implicit ec: ExecutionContext) = {
+  def branches(ids: Seq[Long])(implicit ec: ExecutionContext): Future[BranchPayload] = {
     execute[BranchPayload](
       Uri(s"http://$host/2.0/catalog/branch/get").withQuery(Query(
         "id" -> ids.mkString(","),
@@ -78,20 +83,41 @@ trait WebAPI {
         "format" -> "json",
         "fields" -> "items.point"
       ))
-    )
+    ).map {
+      case Left(ApiError(404, _, _)) => BranchPayload(Seq.empty)
+      case Left(ex) => throw ex
+      case Right(result) => result
+    }
   }
 
-  def regionSearch(q: String)(implicit ec: ExecutionContext) = {
+  def regionSearch(q: String)(implicit ec: ExecutionContext): Future[RegionPayload] = {
     execute[RegionPayload](
       Uri(s"http://$host/2.0/region/search").withQuery(Query(
         "key" -> key,
         "q" -> q
       ))
-    )
+    ).map {
+      case Left(ApiError(404, _, _)) => RegionPayload(Seq.empty)
+      case Left(ex) => throw ex
+      case Right(result) => result
+    }
+  }
+
+  def regionGet(id: Int)(implicit ec: ExecutionContext): Future[RegionInfoPayload] = {
+    execute[RegionInfoPayload](
+      Uri(s"http://$host/2.0/region/get").withQuery(Query(
+        "key" -> key,
+        "id" -> id.toString
+      ))
+    ).map {
+      case Left(ApiError(404, _, _)) => RegionInfoPayload(List.empty)
+      case Left(ex) => throw ex
+      case Right(result) => result
+    }
   }
 
   def searchBranches(q: String, project: Int, page: Option[Int] = None, pageSize: Option[Int] = None)
-                    (implicit ec: ExecutionContext) = {
+                    (implicit ec: ExecutionContext): Future[Search] = {
     execute[Search](
       Uri(s"http://$host/2.0/catalog/branch/search").withQuery(Query(Map(
         "key" -> key,

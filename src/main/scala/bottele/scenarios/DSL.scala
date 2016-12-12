@@ -18,7 +18,8 @@ trait Dsl {
 
   val reject: URouteResult = Left(())
 
-  def complete[T](t: T): URoute = _ => Right(Future.successful(t))
+  def result[T](t: T): URoute = _ => Right(Future.successful(t))
+  def asyncResult[T](t: Future[T]): URoute = _ => Right(t)
 
   abstract class Directive[T]() {
     def apply(inner: T => URoute): URoute
@@ -47,41 +48,38 @@ trait Dsl {
     }
   }
 
-  val update: Directive[Update] = Directive[Update] { inner => u => inner(u)(u) }
-
+  val updateRequest: Directive[Update] = Directive[Update] { inner => u => inner(u)(u) }
+  val empty: Directive[Unit] = Directive { inner => inner(()) }
+  def filter(f: => Boolean): Directive[Unit] = empty.filter(_ => f)
 }
 
 trait UpdateDirectives extends Dsl {
-  val message: Directive[Message] = update.collect {
+
+  val message: Directive[Message] = updateRequest.collect {
     case u if u.message.isDefined => u.message.get
   }
 
-  val messageChatId: Directive[Chat] = message.map(_.chat)
+  val messageUser: Directive[User] = message.collect {
+    case m if m.from.isDefined => m.from.get
+  }
+  val messageChat: Directive[Chat] = message.map(_.chat)
   val messageText: Directive[String] = message.map(_.text).collect {
     case Some(text) => text
   }
 
-  val callback: Directive[CallbackQuery] = update.collect {
+  def command(name: String): Directive[String] = {
+    val prefix = "/" + name
+    messageText.filter(_.startsWith(prefix)).map(_.substring(prefix.length).trim)
+  }
+
+  def emptyCommand(name: String): Directive[Unit] = command(name).filter(_.isEmpty).map(_ => ())
+  def nonEmptyCommand(name: String): Directive[String] = command(name).filter(!_.isEmpty)
+
+  val callback: Directive[CallbackQuery] = updateRequest.collect {
     case u if u.callbackQuery.isDefined => u.callbackQuery.get
   }
-  val callbackFrom: Directive[User] = callback.map(_.from)
-
 }
 
-object RRRR extends App with UpdateDirectives {
-import scala.concurrent.ExecutionContext.Implicits.global
-  val r = message { msg =>
-    complete(s"msg $msg")
-  } ~ callback { callback =>
-    complete(s"callback $callback")
-  }
-
-  def run(result: URouteResult) = result match {
-    case Left(_) => println("No matches")
-    case Right(f) => f.onComplete(println)
-  }
-
-  run(r(Update(1, None, None, None)))
-  run(r(Update(1, Some(new Message(1, None, 1L, null, None)), None, None)))
-  run(r(Update(1, None, None, Some(CallbackQuery("11", null, None, None, "")))))
-}
+trait Telerouting
+  extends UpdateDirectives
+object Telerouting extends Telerouting

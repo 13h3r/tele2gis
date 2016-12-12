@@ -1,14 +1,12 @@
 package bottele
 
-import akka.Done
 import akka.actor.ActorSystem
 import akka.stream._
 import akka.stream.scaladsl.{Keep, Sink}
-import bottele.TelegramBotAPI._
-import bottele.WebAPI.ApiError
 import bottele.scenarios.Router
+import bottele.userstorage.NaiveUserStorage
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.util.{Failure, Success}
 
 object Bot extends App {
@@ -18,6 +16,7 @@ object Bot extends App {
 
   implicit val webApi = WebAPI(as)
   implicit val teleApi = TelegramBotAPI(as.settings.config.getString("telegram.token"))
+  implicit val storage = new NaiveUserStorage(as.settings.config.getString("naive-storage.conn"))
 
   val (control, result) = UpdatesSource(teleApi)
     .map { x => println(s"Got update $x"); x }

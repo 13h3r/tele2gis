@@ -1,68 +1,118 @@
 package bottele.scenarios
 
 import akka.Done
-import bottele.{TelegramBotAPI, WebAPI}
 import bottele.TelegramBotAPI._
-import bottele.WebAPI.ApiError
+import bottele.WebAPI.RegionInfoPayload
+import bottele.userstorage.UserStorage
+import bottele.{City, TelegramBotAPI, WebAPI}
+import cats.data.EitherT
 
 import scala.concurrent.{ExecutionContext, Future}
 
+object Router extends Telerouting {
+  def apply(update: Update)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Any] = {
 
-object Command {
-  def unapplier[T](command: String, creator: String => T): (Update) => Option[T] = {
-    val pattern = s"/$command "
-    (update: Update) =>
-      for {
-        msg <- update.message
-        text <- msg.text
-        if text.startsWith(pattern)
-      } yield creator(text.substring(pattern.length))
-  }
-}
-
-object CityCommand {
-  def unapply(in: Update) = Command.unapplier("/city", str => new CityCommand(str.trim))(in)
-}
-
-class CityCommand(val text: String)
-
-object Router {
-  def apply(update: Update)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI): Future[Any] = update match {
-    case CityCommand(cmd) =>
-      webApi.regionSearch(cmd.text).flatMap {
-        case Left(error) => throw error
-        case Right(regions) =>
-          teleApi.sendMessage(
-            TelegramBotAPI.SendMessage(
-              update.message.get.chat.id,
-              regions.items.map(_.name).mkString(", ")
-            )
-          )
+    val route =
+      {
+        messageUser { user =>
+          messageChat { chat =>
+            nonEmptyCommand("city") { text =>
+              asyncResult(
+                CitySelectionScenario(text, chat, user)
+              )
+            } ~
+              emptyCommand("city") { _ =>
+                asyncResult(
+                  ShowCurrentCity(chat, user)
+                )
+              } ~
+              messageText { text =>
+                asyncResult {
+                  SearchScenario(chat.id, text)
+                }
+              }
+          }
+        } ~
+          callback { cb =>
+            asyncResult {
+              InfoScenario(Right(cb.from.id), cb.data, Some(cb.id))
+            }
+          }
       }
-    case u if u.message.isDefined && u.message.get.text.isDefined =>
-      Search(u.message.get.chat.id, u.message.get.text.get)
-    case Update(_ ,_ ,_, Some(callback)) =>
-      Info(callback.from.id, callback.data, Some(callback.id.toLong))
-    case unknown =>
-      Future.successful(Done)
+
+    route(update) match {
+      case Left(_) =>
+        println("Unmatched update")
+        Future.successful(())
+      case Right(r) => r
+    }
   }
 }
 
-object Info {
+object CitySelectionScenario {
+  def apply(text: String, chat: Chat, user: User)(
+    implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Message] =
+  {
+    import TelegramBotAPI._
+    import cats.instances.future._
+
+    EitherT.pure[Future, SendMessage, String](text)
+      .ensure(SendMessage(Left(chat.id), "Введите не менее двух симолов"))(_.length > 2)
+      .semiflatMap(webApi.regionSearch)
+      .ensure(SendMessage(Left(chat.id), "Увы, мы ничего не нашли"))(!_.items.isEmpty)
+      .subflatMap { regions =>
+        if(regions.items.length == 1) {
+          Right(regions.items.head)
+        } else {
+          Left(
+            SendMessage(Left(chat.id), s"Мы нашли такие города: ${regions.items.map(_.name).mkString(", ")}")
+          )
+        }
+      }
+      .semiflatMap { region =>
+        storage.setCity(user.id, City(region.id.toInt)).map { x =>
+          SendMessage(Left(chat.id), s"Ваш новый город ${region.name}")
+        }
+      }
+      .valueOr(identity)
+      .flatMap(teleApi.sendMessage)
+  }
+}
+
+object ShowCurrentCity {
+  def apply(chat: Chat, user: User)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage) = {
+    import cats.instances.future._
+    EitherT
+      .right(storage.getCity(user.id))
+      .subflatMap {
+        case None => Left(SendMessage(Left(chat.id), "Вы еще не выбрали город"))
+        case Some(city) => Right(city.id)
+      }
+      .semiflatMap(webApi.regionGet)
+      .subflatMap {
+        case RegionInfoPayload(Nil) => Left(SendMessage(Left(chat.id), "Не удалось найти ваш город"))
+        case RegionInfoPayload(region :: Nil) => Right(SendMessage(Left(chat.id), s"Ваш текущий город ${region.name}"))
+        case _ => Left(SendMessage(Left(chat.id), "Не удалось найти ваш город"))
+      }
+      .valueOr(identity)
+      .map(teleApi.sendMessage)
+  }
+}
+
+object InfoScenario {
   trait Reply
   case class Location(lon: Double, lat: Double)
   case class Info(name: String, address: Option[String], phones: Iterable[String], location: Option[Location]) extends Reply
   object NotFound extends Reply
 
-  def apply(chatId: Long, filial: String, callbackId: Option[Long])
-    (implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI
-  ): Future[Done] = {
+  def apply(chatId: Either[ChatId, UserId], filial: String, callbackId: Option[CallbackId])
+           (implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI
+           ): Future[Done] = {
     webApi
       .branches(Seq(filial.toLong))
-      .map {
-        case Left(ApiError(404, _, _)) => NotFound
-        case Left(error) => throw error
-        case Right(branches) =>
+      .map { branches =>
+        if(branches.items.isEmpty) NotFound
+        else {
           branches.items.headOption.map { branch =>
             val phones = for {
               groups <- branch.contact_groups.toSeq.flatten
@@ -72,6 +122,7 @@ object Info {
             val location = branch.point.map(p => Location(p.lon, p.lat))
             Info(branch.name, branch.address_name, phones, location)
           }.getOrElse(NotFound)
+        }
       }
       .map {
         case NotFound => teleApi.sendMessage(SendMessage(chatId, "Увы, мы ничего не нашли"))
@@ -98,9 +149,9 @@ object Info {
 
 }
 
-object Search {
-  def apply(chatId: Long, text: String)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI): Future[Done] = {
-    case class Reply(chatId: Long, response: Response)
+object SearchScenario {
+  def apply(chatId: ChatId, text: String)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Done] = {
+    case class Reply(chatId: ChatId, response: Response)
     trait Response
     object UnknownUpdate extends Response
     object NotFound extends Response
@@ -108,8 +159,8 @@ object Search {
     case class Firms(firms: List[Firm]) extends Response
 
     def renderReply(reply: Reply) = reply.response match {
-      case UnknownUpdate => SendMessage(reply.chatId, "Какое-то непонятное сообщение")
-      case NotFound => SendMessage(reply.chatId, "Увы, мы ничего не нашли")
+      case UnknownUpdate => SendMessage(Left(reply.chatId), "Какое-то непонятное сообщение")
+      case NotFound => SendMessage(Left(reply.chatId), "Увы, мы ничего не нашли")
       case Firms(firms) =>
         val markup = InlineKeyboardMarkup(
           List(firms.zipWithIndex.map { case (f, i) => InlineKeyboardButton(s"${i + 1}", None, Some(f.id)) })
@@ -117,7 +168,7 @@ object Search {
         val text = firms.zipWithIndex.map {
           case (f, i) => s"${i + 1}. ${f.name}"
         }.mkString("\n")
-        SendMessage(reply.chatId, text, Some(markup))
+        SendMessage(Left(reply.chatId), text, Some(markup))
     }
 
     webApi
@@ -137,7 +188,7 @@ object Search {
         }
       }
       .map {
-        case Firms(firm :: Nil) => Info(chatId, firm.id, None)
+        case Firms(firm :: Nil) => InfoScenario(Left(chatId), firm.id, None)
         case reply => teleApi.sendMessage(renderReply(Reply(chatId, reply)))
       }
       .map(_ => Done)
