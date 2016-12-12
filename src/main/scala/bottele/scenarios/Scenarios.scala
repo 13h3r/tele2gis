@@ -21,23 +21,23 @@ object Router extends Telerouting {
                 CitySelectionScenario(text, chat, user)
               )
             } ~
-              emptyCommand("city") { _ =>
-                asyncResult(
-                  ShowCurrentCity(chat, user)
-                )
-              } ~
-              messageText { text =>
-                asyncResult {
-                  SearchScenario(chat.id, text)
-                }
+            emptyCommand("city") { _ =>
+              asyncResult(
+                ShowCurrentCity(chat, user)
+              )
+            } ~
+            messageText { text =>
+              asyncResult {
+                SearchScenario(chat.id, text)
               }
-          }
-        } ~
-          callback { cb =>
-            asyncResult {
-              InfoScenario(Right(cb.from.id), cb.data, Some(cb.id))
             }
           }
+        } ~
+        callback { cb =>
+          asyncResult {
+            InfoScenario(Right(cb.from.id), cb.data, Some(cb.id))
+          }
+        }
       }
 
     route(update) match {
@@ -59,7 +59,7 @@ object CitySelectionScenario {
     EitherT.pure[Future, SendMessage, String](text)
       .ensure(SendMessage(Left(chat.id), "Введите не менее двух симолов"))(_.length > 2)
       .semiflatMap(webApi.regionSearch)
-      .ensure(SendMessage(Left(chat.id), "Увы, мы ничего не нашли"))(!_.items.isEmpty)
+      .ensure(SendMessage(Left(chat.id), "Увы, мы ничего не нашли"))(_.items.nonEmpty)
       .subflatMap { regions =>
         if(regions.items.length == 1) {
           Right(regions.items.head)
