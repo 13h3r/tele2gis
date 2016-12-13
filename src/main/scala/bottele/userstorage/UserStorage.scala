@@ -24,21 +24,23 @@ class NaiveUserStorage(connString: String) extends UserStorage {
     conn.close()
     result
   }
-  private def executeUpdate[T](q: String): Unit = {
+  private def executeUpdate[T](q: String): Int = {
     println(q)
     val conn = DriverManager.getConnection(connString)
     val ps = conn.prepareStatement(q)
-    ps.executeUpdate()
+    val result = ps.executeUpdate()
     ps.close()
     conn.close()
-    ()
+    result
   }
 
   implicit class PimpedResultSet(resultSet: ResultSet) {
-    def iterator: Iterator[ResultSet] = Iterator
-      .continually((resultSet, resultSet.next))
-      .takeWhile(_._2)
-      .map(x => x._1)
+    def iterator: Iterator[ResultSet] = {
+      Iterator
+        .continually((resultSet, resultSet.next))
+        .takeWhile(_._2)
+        .map(x => x._1)
+    }
 
     def map[T](f: ResultSet => T): List[T] = iterator
       .map(f)
@@ -48,7 +50,9 @@ class NaiveUserStorage(connString: String) extends UserStorage {
   override def getCity(user: UserId)(implicit ec: ExecutionContext): Future[Option[City]] = {
     Future {
       execute(s"select city_id from users where user_id = ${user.id}") {
-        _.iterator.toList
+        _.iterator
+          .take(1)
+          .toList
           .headOption
           .flatMap { rs =>
             Option(rs.getInt(1)).map(City)
@@ -60,6 +64,10 @@ class NaiveUserStorage(connString: String) extends UserStorage {
   override def setCity(user: UserId, city: City)(implicit ec: ExecutionContext): Future[Unit] = {
     Future {
       executeUpdate(s"update users set city_id = ${city.id} where user_id = ${user.id}")
+    }.flatMap {
+      case 0 =>
+        Future(executeUpdate(s"insert into users (city_id, user_id) values (${city.id}, ${user.id})"))
+      case _ => Future.successful(())
     }
   }
 }

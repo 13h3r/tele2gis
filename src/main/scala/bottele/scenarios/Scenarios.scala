@@ -14,8 +14,8 @@ object Router extends Telerouting {
 
     val route =
       {
-        messageUser { user =>
-          messageChat { chat =>
+        messageUserId { user =>
+          messageChatId { chat =>
             nonEmptyCommand("city") { text =>
               asyncResult(
                 CitySelectionScenario(text, chat, user)
@@ -28,7 +28,7 @@ object Router extends Telerouting {
             } ~
             messageText { text =>
               asyncResult {
-                SearchScenario(chat.id, text)
+                SearchScenario(chat, user, text)
               }
             }
           }
@@ -50,28 +50,28 @@ object Router extends Telerouting {
 }
 
 object CitySelectionScenario {
-  def apply(text: String, chat: Chat, user: User)(
+  def apply(text: String, chatId: ChatId, userId: UserId)(
     implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Message] =
   {
     import TelegramBotAPI._
     import cats.instances.future._
 
     EitherT.pure[Future, SendMessage, String](text)
-      .ensure(SendMessage(Left(chat.id), "Введите не менее двух симолов"))(_.length > 2)
+      .ensure(SendMessage(Left(chatId), "Введите не менее двух симолов"))(_.length > 2)
       .semiflatMap(webApi.regionSearch)
-      .ensure(SendMessage(Left(chat.id), "Увы, мы ничего не нашли"))(_.items.nonEmpty)
+      .ensure(SendMessage(Left(chatId), "Увы, мы ничего не нашли"))(_.items.nonEmpty)
       .subflatMap { regions =>
         if(regions.items.length == 1) {
           Right(regions.items.head)
         } else {
           Left(
-            SendMessage(Left(chat.id), s"Мы нашли такие города: ${regions.items.map(_.name).mkString(", ")}")
+            SendMessage(Left(chatId), s"Мы нашли такие города: ${regions.items.map(_.name).mkString(", ")}")
           )
         }
       }
       .semiflatMap { region =>
-        storage.setCity(user.id, City(region.id.toInt)).map { x =>
-          SendMessage(Left(chat.id), s"Ваш новый город ${region.name}")
+        storage.setCity(userId, City(region.id.toInt)).map { x =>
+          SendMessage(Left(chatId), s"Ваш новый город ${region.name}")
         }
       }
       .valueOr(identity)
@@ -80,22 +80,22 @@ object CitySelectionScenario {
 }
 
 object ShowCurrentCity {
-  def apply(chat: Chat, user: User)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage) = {
+  def apply(chat: ChatId, user: UserId)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Message] = {
     import cats.instances.future._
     EitherT
-      .right(storage.getCity(user.id))
+      .right(storage.getCity(user))
       .subflatMap {
-        case None => Left(SendMessage(Left(chat.id), "Вы еще не выбрали город"))
+        case None => Left(SendMessage(Left(chat), "Вы еще не выбрали город"))
         case Some(city) => Right(city.id)
       }
       .semiflatMap(webApi.regionGet)
       .subflatMap {
-        case RegionInfoPayload(Nil) => Left(SendMessage(Left(chat.id), "Не удалось найти ваш город"))
-        case RegionInfoPayload(region :: Nil) => Right(SendMessage(Left(chat.id), s"Ваш текущий город ${region.name}"))
-        case _ => Left(SendMessage(Left(chat.id), "Не удалось найти ваш город"))
+        case RegionInfoPayload(Nil) => Left(SendMessage(Left(chat), "Не удалось найти ваш город"))
+        case RegionInfoPayload(region :: Nil) => Right(SendMessage(Left(chat), s"Ваш текущий город ${region.name}"))
+        case _ => Left(SendMessage(Left(chat), "Не удалось найти ваш город"))
       }
       .valueOr(identity)
-      .map(teleApi.sendMessage)
+      .flatMap(teleApi.sendMessage)
   }
 }
 
@@ -150,7 +150,7 @@ object InfoScenario {
 }
 
 object SearchScenario {
-  def apply(chatId: ChatId, text: String)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Done] = {
+  def apply(chatId: ChatId, userId: UserId, text: String)(implicit ec: ExecutionContext, teleApi: TelegramBotAPI, webApi: WebAPI, storage: UserStorage): Future[Done] = {
     case class Reply(chatId: ChatId, response: Response)
     trait Response
     object UnknownUpdate extends Response
@@ -171,8 +171,10 @@ object SearchScenario {
         SendMessage(Left(reply.chatId), text, Some(markup))
     }
 
-    webApi
-      .searchBranches(text, 1, page = Some(1), pageSize = Some(5))
+    storage
+      .getCity(userId)
+      .map(_.map(_.id).getOrElse(1))
+      .flatMap(webApi.searchBranches(text, _, page = Some(1), pageSize = Some(5)))
       .map { search =>
         if (search.items.isEmpty) {
           NotFound

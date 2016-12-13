@@ -1,6 +1,6 @@
 package bottele.scenarios
 
-import bottele.TelegramBotAPI.{CallbackQuery, Chat, Message, Update, User}
+import bottele.TelegramBotAPI.{CallbackQuery, Chat, ChatId, Message, Update, User, UserId}
 
 import scala.concurrent.Future
 
@@ -59,10 +59,10 @@ trait UpdateDirectives extends Dsl {
     case u if u.message.isDefined => u.message.get
   }
 
-  val messageUser: Directive[User] = message.collect {
-    case m if m.from.isDefined => m.from.get
+  val messageUserId: Directive[UserId] = message.collect {
+    case m if m.from.isDefined => m.from.get.id
   }
-  val messageChat: Directive[Chat] = message.map(_.chat)
+  val messageChatId: Directive[ChatId] = message.map(_.chat.id)
   val messageText: Directive[String] = message.map(_.text).collect {
     case Some(text) => text
   }
