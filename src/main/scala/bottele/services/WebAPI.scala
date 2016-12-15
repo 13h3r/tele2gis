@@ -1,4 +1,4 @@
-package bottele
+package bottele.services
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model.{HttpRequest, Uri}
 import akka.stream.{ActorMaterializer, ActorMaterializerSettings, Materializer}
 import akka.util.ByteString
-import bottele.WebAPI.WebAPIProtocol
+import bottele.services.WebAPI.WebAPIProtocol
 import com.typesafe.config.ConfigFactory
 import spray.json.{DefaultJsonProtocol, JsonFormat, RootJsonFormat}
 
@@ -31,14 +31,18 @@ object WebAPI {
   case class MetaError(`type`: String, message: String)
   case class Point(lon: Double, lat: Double)
   case class Contact(`type`: String, text: String, comment: Option[String])
-  case class ContactGroups(contacts: Seq[Contact])
+  case class ContactGroups(contacts: List[Contact])
   case class Branch(id: String, name: String, address_name: Option[String], contact_groups: Option[Seq[ContactGroups]], point: Option[Point])
-  case class BranchPayload(items: Seq[Branch])
-  case class Search(total: Long, items: Seq[Branch])
+  case class BranchPayload(items: List[Branch])
+  case class Search(total: Long, items: List[Branch])
   case class RegionItem(name: String, id: String, `type`: String)
-  case class RegionPayload(items: Seq[RegionItem])
+  case class RegionPayload(items: List[RegionItem])
   case class RegionInfoPayload(items: List[RegionInfo])
   case class RegionInfo(name: String, id: String, `type`: String)
+
+  case class Geometry(centroid: Option[String])
+  case class Geo(id: String, name: String, purpose_name: Option[String], full_name: String, `type`: String, geometry: Option[Geometry])
+  case class GeoGetPayload(items: List[Geo])
 
   trait WebAPIProtocol extends DefaultJsonProtocol {
     implicit val contactFormat = jsonFormat3(Contact)
@@ -51,12 +55,16 @@ object WebAPI {
     implicit val searchFormat = jsonFormat2(Search)
     implicit val regionFormat = jsonFormat3(RegionItem)
     implicit val regionPayloadFormat = jsonFormat1(RegionPayload)
-    implicit val regionInfo = jsonFormat3(RegionInfo)
-    implicit val regionInfoPayload = jsonFormat1(RegionInfoPayload)
+    implicit val regionInfoFormat = jsonFormat3(RegionInfo)
+    implicit val regionInfoPayloadFormat = jsonFormat1(RegionInfoPayload)
+    implicit val geometryFormat = jsonFormat1(Geometry)
+    implicit val geoItemFormat = jsonFormat6(Geo)
+    implicit val geoGetPayloadFormat = jsonFormat1(GeoGetPayload)
     implicit val branchResponseFormat: RootJsonFormat[Response[BranchPayload]] = jsonFormat2(Response[BranchPayload])
     implicit val searchResponseFormat: RootJsonFormat[Response[Search]] = jsonFormat2(Response[Search])
     implicit val regionResponseFormat: RootJsonFormat[Response[RegionPayload]] = jsonFormat2(Response[RegionPayload])
     implicit val regionInfoResponseFormat: RootJsonFormat[Response[RegionInfoPayload]] = jsonFormat2(Response[RegionInfoPayload])
+    implicit val getGetResponseFormat: RootJsonFormat[Response[GeoGetPayload]] = jsonFormat2(Response[GeoGetPayload])
   }
 }
 
@@ -75,7 +83,7 @@ trait WebAPI {
     value.map(x => Map(key -> x.toString)).getOrElse(Map.empty)
   }
 
-  def branches(ids: Seq[Long])(implicit ec: ExecutionContext): Future[BranchPayload] = {
+  def branchGet(ids: Seq[Long])(implicit ec: ExecutionContext): Future[BranchPayload] = {
     execute[BranchPayload](
       Uri(s"http://$host/2.0/catalog/branch/get").withQuery(Query(
         "id" -> ids.mkString(","),
@@ -84,23 +92,45 @@ trait WebAPI {
         "fields" -> "items.point"
       ))
     ).map {
-      case Left(ApiError(404, _, _)) => BranchPayload(Seq.empty)
+      case Left(ApiError(404, _, _)) => BranchPayload(List.empty)
       case Left(ex) => throw ex
       case Right(result) => result
     }
   }
 
-  def regionSearch(q: String)(implicit ec: ExecutionContext): Future[RegionPayload] = {
-    execute[RegionPayload](
+  def branchGetOne(id: Long)(implicit ec: ExecutionContext): Future[Option[Branch]] = {
+    branchGet(Seq(id)).map(_.items.headOption)
+  }
+
+  def regionSearch(q: String)(implicit ec: ExecutionContext): Future[RegionInfoPayload] = {
+    execute[RegionInfoPayload](
       Uri(s"http://$host/2.0/region/search").withQuery(Query(
         "key" -> key,
         "q" -> q
       ))
     ).map {
-      case Left(ApiError(404, _, _)) => RegionPayload(Seq.empty)
+      case Left(ApiError(404, _, _)) => RegionInfoPayload(List.empty)
       case Left(ex) => throw ex
       case Right(result) => result
     }
+  }
+
+  def geoGet(ids: Seq[Long])(implicit ec: ExecutionContext): Future[GeoGetPayload] = {
+    execute[GeoGetPayload](
+      Uri(s"http://$host/2.0/geo/get").withQuery(Query(
+        "key" -> key,
+        "id" -> ids.mkString(","),
+        "fields" -> "items.geometry.centroid"
+      ))
+    ).map {
+      case Left(ApiError(404, _, _)) => GeoGetPayload(List.empty)
+      case Left(ex) => throw ex
+      case Right(result) => result
+    }
+  }
+
+  def geoGetOne(id: Long)(implicit ec: ExecutionContext): Future[Option[Geo]] = {
+    geoGet(Seq(id)).map(_.items.headOption)
   }
 
   def regionGet(id: Int)(implicit ec: ExecutionContext): Future[RegionInfoPayload] = {
@@ -116,6 +146,7 @@ trait WebAPI {
     }
   }
 
+
   def searchBranches(q: String, project: Int, page: Option[Int] = None, pageSize: Option[Int] = None)
                     (implicit ec: ExecutionContext): Future[Search] = {
     execute[Search](
@@ -126,7 +157,7 @@ trait WebAPI {
         "region_id" -> project.toString
       ) ++ optionToMap("page", page) ++ optionToMap("page_size", pageSize)
       ))).map {
-      case Left(ApiError(404, _, _)) => Search(0, Seq.empty)
+      case Left(ApiError(404, _, _)) => Search(0, List.empty)
       case Left(ex) => throw ex
       case Right(result) => result
     }

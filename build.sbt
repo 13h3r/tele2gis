@@ -8,7 +8,18 @@ val akkaV = "2.4.14"
 
 scalaVersion := "2.11.8"
 
-resolvers += Resolver.jcenterRepo
+val additionalResolvers = Seq(
+  "Bounless" at "http://repo.boundlessgeo.com/main/",
+  Resolver.jcenterRepo,
+  "WebAPI Releases" at "http://repo.ms.ostack.test/repository/releases",
+  "Scala Tools Snapshots" at "http://scala-tools.org/repo-snapshots/",
+  "Sonatype Releases" at "http://oss.sonatype.org/content/repositories/releases/",
+  "OpenGeo repo" at "http://download.osgeo.org/webdav/geotools/"
+)
+
+resolvers ++= additionalResolvers
+
+val geoToolsVersion = "15.1"
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-actor" % akkaV,
@@ -16,7 +27,11 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-http-spray-json" % "10.0.0",
   "com.typesafe.akka" %% "akka-slf4j" % akkaV,
   "org.typelevel" %% "cats" % "0.8.1",
-  "org.postgresql" % "postgresql" % "9.4.1212"
+  "org.postgresql" % "postgresql" % "9.4.1212",
+  "ru.dgis.ipa" %% "lib-rest-sapphire" % "1.1.1",
+  "org.geotools" % "gt-referencing" % geoToolsVersion,
+  "org.geotools" % "gt-api" % geoToolsVersion,
+  "org.geotools" % "gt-epsg-hsql" % geoToolsVersion
 )
 
 assemblyMergeStrategy in assembly <<= (assemblyMergeStrategy in assembly) { old => {

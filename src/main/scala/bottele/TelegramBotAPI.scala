@@ -6,7 +6,7 @@ import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model._
 import akka.stream.{ActorMaterializer, ActorMaterializerSettings, Materializer}
 import akka.util.ByteString
-import spray.json.{DefaultJsonProtocol, JsValue, JsonFormat, JsonReader, JsonWriter}
+import spray.json.{DefaultJsonProtocol, JsNumber, JsValue, JsonFormat, JsonReader, JsonWriter}
 
 import scala.collection.immutable.{Map, Seq}
 import scala.concurrent.duration.DurationInt
@@ -19,6 +19,12 @@ object TelegramBotAPI {
     override protected val http: HttpExt = Http(as)
   }
 
+  case class ReplyTo(value: Either[UserId, ChatId])
+  object ReplyTo {
+    def fromUser(id: UserId) = new ReplyTo(Left(id))
+    def fromChat(id: ChatId) = new ReplyTo(Right(id))
+  }
+
   case class UserId(id: Long) extends AnyVal
   case class ChatId(id: Long) extends AnyVal
   case class MessageId(id: Long) extends AnyVal
@@ -28,8 +34,8 @@ object TelegramBotAPI {
   case class ServerResponse(ok: Boolean, result: JsValue)
   case class User(id: UserId, firstName: String, lastName: Option[String], username: Option[String])
   case class Chat(id: ChatId)
-  case class SendMessage(chatId: Either[ChatId, UserId], text: String, replyMarkup: Option[ReplyMarkup] = None)
-  case class SendLocation(chatId: Either[ChatId, UserId], latitude: Double, longitude: Double)
+  case class SendMessage(chatId: ReplyTo, text: String, replyMarkup: Option[ReplyMarkup] = None)
+  case class SendLocation(chatId: ReplyTo, latitude: Double, longitude: Double)
   case class Message(messageId: MessageId, from: Option[User], date: Long, chat: Chat, text: Option[String])
   case class Update(updateId: UpdateId, message: Option[Message], chosenInlineResult: Option[ChosenInlineResult], callbackQuery: Option[CallbackQuery])
 
@@ -76,6 +82,10 @@ object TelegramBotAPI {
           }
         }
       )
+    }
+    implicit val json_userOrChatId = new JsonFormat[ReplyTo] {
+      override def read(json: JsValue): ReplyTo = ???
+      override def write(obj: ReplyTo): JsValue = JsNumber(obj.value.fold(_.id, _.id))
     }
     implicit val json_message = jsonFormat5(Message)
     implicit val json_callbackQuery= jsonFormat5(CallbackQuery)

@@ -1,4 +1,4 @@
-package bottele.userstorage
+package bottele.services
 
 import java.sql.{DriverManager, ResultSet}
 
@@ -12,10 +12,10 @@ trait UserStorage {
   def setCity(user: UserId, city: City)(implicit ec: ExecutionContext): Future[Unit]
 }
 
-class NaiveUserStorage(connString: String) extends UserStorage {
+class NaiveUserStorage(connString: String, user: String, pass: String) extends UserStorage {
   private def execute[T](q: String)(f: ResultSet => T): T = {
     println(q)
-    val conn = DriverManager.getConnection(connString)
+    val conn = DriverManager.getConnection(connString, user, pass)
     val ps = conn.prepareStatement(q)
     val rs = ps.executeQuery()
     val result = f(rs)
@@ -26,7 +26,7 @@ class NaiveUserStorage(connString: String) extends UserStorage {
   }
   private def executeUpdate[T](q: String): Int = {
     println(q)
-    val conn = DriverManager.getConnection(connString)
+    val conn = DriverManager.getConnection(connString, user, pass)
     val ps = conn.prepareStatement(q)
     val result = ps.executeUpdate()
     ps.close()

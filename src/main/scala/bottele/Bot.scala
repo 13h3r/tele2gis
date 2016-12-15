@@ -4,7 +4,8 @@ import akka.actor.ActorSystem
 import akka.stream._
 import akka.stream.scaladsl.{Keep, Sink}
 import bottele.scenarios.Router
-import bottele.userstorage.NaiveUserStorage
+import bottele.services.{NaiveUserStorage, SapphireService, WebAPI}
+import ru.dgis.sapphire.SapphireClient
 
 import scala.concurrent.Future
 import scala.util.{Failure, Success}
@@ -16,7 +17,12 @@ object Bot extends App {
 
   implicit val webApi = WebAPI(as)
   implicit val teleApi = TelegramBotAPI(as.settings.config.getString("telegram.token"))
-  implicit val storage = new NaiveUserStorage(as.settings.config.getString("naive-storage.conn"))
+  implicit val storage = new NaiveUserStorage(
+    as.settings.config.getString("naive-storage.conn"),
+    as.settings.config.getString("naive-storage.user"),
+    as.settings.config.getString("naive-storage.pass")
+  )
+  implicit val sapphire = SapphireService(SapphireClient("sapphire"))
 
   val (control, result) = UpdatesSource(teleApi)
     .map { x => println(s"Got update $x"); x }
