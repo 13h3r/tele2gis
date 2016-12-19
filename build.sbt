@@ -63,3 +63,6 @@ imageNames in docker := Seq(
   // Sets the latest tag
   ImageName(s"13h3r/bottele:latest")
 )
+
+addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
+
