@@ -3,11 +3,10 @@ package bottele
 import akka.actor.ActorSystem
 import akka.stream._
 import akka.stream.scaladsl.{Keep, Sink}
-import bottele.scenarios.Router
+import bottele.free.FreeBot
 import bottele.services.{NaiveUserStorage, SapphireService, WebAPI}
 import ru.dgis.sapphire.SapphireClient
 
-import scala.concurrent.Future
 import scala.util.{Failure, Success}
 
 object Bot extends App {
@@ -24,16 +23,13 @@ object Bot extends App {
   )
   implicit val sapphire = SapphireService(SapphireClient("sapphire"))
 
+
+  val process = FreeBot(teleApi)
   val (control, result) = UpdatesSource(teleApi)
     .map { x => println(s"Got update $x"); x }
     .mapAsync(10) { msg =>
-      val chatId = msg.message.map(_.chat.id)
-        .orElse(msg.callbackQuery.flatMap(_.message.map(_.chat.id)))
-      chatId.map { chatId =>
-        teleApi.sendChatActionTyping(chatId).map(_ => msg)
-      }.getOrElse(Future.successful(msg))
+      process(msg)
     }
-    .mapAsync(10) { update => Router.apply(update) }
     .toMat(Sink.ignore)(Keep.both)
     .run()
 

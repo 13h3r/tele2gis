@@ -2,6 +2,7 @@ package bottele.free
 
 import bottele.TelegramBotAPI.{CallbackId, ReplyTo, UserId}
 import bottele.services.SapphireService
+import cats.~>
 
 sealed trait Finish
 object Finish extends Finish
@@ -16,6 +17,7 @@ final case class ShowCard(
   callbackId: Option[CallbackId]
 ) extends Scenario[Finish]
 final case class Search(text: String, reply: ReplyTo, userId: UserId) extends Scenario[Finish]
+case object UnexpectedScenario extends Scenario[Finish]
 
 object ScenarioAlgebra {
   import cats.free._
@@ -33,5 +35,16 @@ object ScenarioAlgebra {
   }
   def search(text: String, reply: ReplyTo, userId: UserId): ScenarioA[Finish] = {
     Free.liftF(Search(text, reply, userId))
+  }
+
+  val unexpectedScenario: ScenarioA[Finish] = Free.liftF(UnexpectedScenario)
+}
+
+object ToStringInterpreter extends (Scenario ~> Reply) {
+  override def apply[A](fa: Scenario[A]): Reply[A] = fa match {
+    case ShowCurrentCity(reply, user) => Text(reply, reply.toString)
+    case CitySelection(_, reply, user) => Text(reply, reply.toString)
+    case Search(t, reply, user) => Text(reply, t)
+    case Unknow(t, reply, user) => Text(reply, t)
   }
 }

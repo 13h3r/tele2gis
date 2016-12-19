@@ -1,16 +1,13 @@
 package bottele.free
 
 import bottele.TelegramBotAPI.{CallbackQuery, ChatId, ReplyTo, Update, UserId}
-import bottele.free.ScenarioAlgebra.ScenarioA
 import bottele.scenarios.ItemSerializer
 import cats.data.Kleisli
-import cats.free.Free
 import cats.~>
 
 sealed trait IncomingMessage[T]
 
 final case class TelegramUpdate(update: Update) extends IncomingMessage[Finish]
-final case class TelegramUpdate2(update: Update) extends IncomingMessage[Finish]
 
 object IncomingMessageAlgebra {
   import cats.free.Free._
@@ -48,29 +45,28 @@ object TelegramExtractors {
   val callback: Extractor[CallbackQuery] = Kleisli(_.callbackQuery)
 }
 
-object IncomingMessageScenarioI {
-  type Result[T] = Either[String, ScenarioA[T]]
-  val instance: IncomingMessage ~> Result = Lambda[IncomingMessage ~> Result]({
+object IncomingMessageInterpreter {
+  val instance: IncomingMessage ~> Scenario = Lambda[IncomingMessage ~> Scenario]({
     case TelegramUpdate(update) =>
       import TelegramExtractors._
       import cats.instances.option._
-      val citySelection: Kleisli[Option, Update, ScenarioA[Finish]] = for {
+      val citySelection = for {
         user <- messageUserId
         chat <- messageChatId
         text <- nonEmptyCommand("city")
-      } yield ScenarioAlgebra.citySelection(text, ReplyTo.fromChat(chat), user)
+      } yield CitySelection(text, ReplyTo.fromChat(chat), user)
       val currentCity = for {
         user <- messageUserId
         chat <- messageChatId
-      } yield ScenarioAlgebra.showCurrentCity(ReplyTo.fromChat(chat), user)
+      } yield ShowCurrentCity(ReplyTo.fromChat(chat), user)
       val search = for {
         user <- messageUserId
         chat <- messageChatId
         text <- messageText
-      } yield ScenarioAlgebra.search(text, ReplyTo.fromChat(chat), user)
+      } yield Search(text, ReplyTo.fromChat(chat), user)
       val showCard = for {
         cb <- callback
-      } yield ScenarioAlgebra.showCard(
+      } yield ShowCard(
         ReplyTo.fromUser(cb.from.id), ItemSerializer.from(cb.data), Some(cb.id)
       )
 
@@ -81,7 +77,6 @@ object IncomingMessageScenarioI {
         .take(1)
         .toList
         .headOption
-        .map(Right(_))
-        .getOrElse(Left(s"Unknown message $update"))
+        .getOrElse(UnexpectedScenario)
     })
 }
