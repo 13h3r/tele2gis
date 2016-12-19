@@ -48,44 +48,40 @@ object TelegramExtractors {
   val callback: Extractor[CallbackQuery] = Kleisli(_.callbackQuery)
 }
 
-
 object IncomingMessageScenarioI {
-  type X[T] = Either[String, ScenarioA[T]]
-  type R[T] = X[T]
-  val instance = new (IncomingMessage ~> R) {
-    override def apply[A](fa: IncomingMessage[A]): R[A] = fa match {
-      case TelegramUpdate(update) =>
-        import TelegramExtractors._
-        import cats.instances.option._
-        val citySelection: Kleisli[Option, Update, ScenarioA[Finish]] = for {
-          user <- messageUserId
-          chat <- messageChatId
-          text <- nonEmptyCommand("city")
-        } yield ScenarioAlgebra.citySelection(text, ReplyTo.fromChat(chat), user)
-        val currentCity = for {
-          user <- messageUserId
-          chat <- messageChatId
-        } yield ScenarioAlgebra.showCurrentCity(ReplyTo.fromChat(chat), user)
-        val search = for {
-          user <- messageUserId
-          chat <- messageChatId
-          text <- messageText
-        } yield ScenarioAlgebra.search(text, ReplyTo.fromChat(chat), user)
-        val showCard = for {
-          cb <- callback
-        } yield ScenarioAlgebra.showCard(
-          ReplyTo.fromUser(cb.from.id), ItemSerializer.from(cb.data), Some(cb.id)
-        )
+  type Result[T] = Either[String, ScenarioA[T]]
+  val instance: IncomingMessage ~> Result = Lambda[IncomingMessage ~> Result]({
+    case TelegramUpdate(update) =>
+      import TelegramExtractors._
+      import cats.instances.option._
+      val citySelection: Kleisli[Option, Update, ScenarioA[Finish]] = for {
+        user <- messageUserId
+        chat <- messageChatId
+        text <- nonEmptyCommand("city")
+      } yield ScenarioAlgebra.citySelection(text, ReplyTo.fromChat(chat), user)
+      val currentCity = for {
+        user <- messageUserId
+        chat <- messageChatId
+      } yield ScenarioAlgebra.showCurrentCity(ReplyTo.fromChat(chat), user)
+      val search = for {
+        user <- messageUserId
+        chat <- messageChatId
+        text <- messageText
+      } yield ScenarioAlgebra.search(text, ReplyTo.fromChat(chat), user)
+      val showCard = for {
+        cb <- callback
+      } yield ScenarioAlgebra.showCard(
+        ReplyTo.fromUser(cb.from.id), ItemSerializer.from(cb.data), Some(cb.id)
+      )
 
-        Iterator[Kleisli[Option, Update, ScenarioA[Finish]]](citySelection)
-          .map(_.run(update))
-          .filter(_.isDefined)
-          .map(_.get)
-          .take(1)
-          .toList
-          .headOption
-          .map(Right(_))
-          .getOrElse(Left(s"Unknown message $update"))
-    }
-  }
+      Iterator(citySelection, currentCity, search, showCard)
+        .map(_.run(update))
+        .filter(_.isDefined)
+        .map(_.get)
+        .take(1)
+        .toList
+        .headOption
+        .map(Right(_))
+        .getOrElse(Left(s"Unknown message $update"))
+    })
 }
