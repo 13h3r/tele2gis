@@ -62,20 +62,20 @@ object Usage {
     user <- userId
     chat <- chatId
     text <- nonEmptyCommand("city")
-  } yield ScenarioAlgebra.citySelection(text, ReplyTo.fromChat(chat), user)
+  } yield Scenario.citySelection(text, ReplyTo.fromChat(chat), user)
   val currentCity = for {
     user <- userId
     chat <- chatId
     _ <- emptyCommand("city")
-  } yield ScenarioAlgebra.showCurrentCity(ReplyTo.fromChat(chat), user)
+  } yield Scenario.showCurrentCity(ReplyTo.fromChat(chat), user)
   val search = for {
     user <- userId
     chat <- chatId
     text <- messageText
-  } yield ScenarioAlgebra.search(text, ReplyTo.fromChat(chat), user)
+  } yield Scenario.search(text, ReplyTo.fromChat(chat), user)
   val showCard = for {
     cb <- callback
-  } yield ScenarioAlgebra.showCard(
+  } yield Scenario.showCard(
     ReplyTo.fromUser(cb.from.id), ItemSerializer.from(cb.data), Some(cb.id)
   )
 }

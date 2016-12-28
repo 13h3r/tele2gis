@@ -8,6 +8,10 @@ val akkaV = "2.4.14"
 
 scalaVersion := "2.11.8"
 
+scalaOrganization := "org.typelevel"
+
+scalacOptions += "-Ypartial-unification"
+
 val additionalResolvers = Seq(
   "Bounless" at "http://repo.boundlessgeo.com/main/",
   Resolver.jcenterRepo,
@@ -31,7 +35,10 @@ libraryDependencies ++= Seq(
   "ru.dgis.ipa" %% "lib-rest-sapphire" % "1.1.1",
   "org.geotools" % "gt-referencing" % geoToolsVersion,
   "org.geotools" % "gt-api" % geoToolsVersion,
-  "org.geotools" % "gt-epsg-hsql" % geoToolsVersion
+  "org.geotools" % "gt-epsg-hsql" % geoToolsVersion,
+  "io.aecor" %% "liberator" % "0.1.0",
+  "io.monix" %% "monix" % "2.1.2",
+  "io.monix" %% "monix-cats" % "2.1.2"
 )
 
 assemblyMergeStrategy in assembly <<= (assemblyMergeStrategy in assembly) { old => {
@@ -66,3 +73,4 @@ imageNames in docker := Seq(
 
 addCompilerPlugin("org.spire-math" %% "kind-projector" % "0.9.3")
 
+addCompilerPlugin("org.scalameta" % "paradise" % "3.0.0-beta4" cross CrossVersion.full)

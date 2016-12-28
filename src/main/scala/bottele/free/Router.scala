@@ -1,24 +1,26 @@
 package bottele.free
 
 import bottele.TelegramBotAPI.{CallbackQuery, ChatId, ReplyTo, Update, UserId}
+import bottele.free.Scenario.Algebra
 import bottele.scenarios.ItemSerializer
 import cats.data.Kleisli
+import cats.free.Free
 import cats.~>
 
-sealed trait IncomingMessage[T]
 
-final case class TelegramUpdate(update: Update) extends IncomingMessage[Finish]
-
-object IncomingMessageAlgebra {
+object IncomingMessage {
   import cats.free.Free._
   import cats.free._
 
-  type IncomingMessageA[T] = Free[IncomingMessage, T]
+  sealed trait IncomingMessageFree[T]
+
+  final case class TelegramUpdate(update: Update) extends IncomingMessageFree[Finish]
+
+  type IncomingMessageA[T] = Free[IncomingMessageFree, T]
 
   def telegramUpdate(update: Update): IncomingMessageA[Finish] = {
     liftF(TelegramUpdate(update))
   }
-
 }
 
 object TelegramExtractors {
@@ -46,7 +48,8 @@ object TelegramExtractors {
 }
 
 object IncomingMessageInterpreter {
-  val instance: IncomingMessage ~> Scenario = Lambda[IncomingMessage ~> Scenario]({
+  import IncomingMessage._
+  val instance: IncomingMessageFree ~> Algebra = Lambda[IncomingMessageFree ~> Algebra]({
     case TelegramUpdate(update) =>
       import TelegramExtractors._
       import cats.instances.option._
@@ -54,19 +57,19 @@ object IncomingMessageInterpreter {
         user <- messageUserId
         chat <- messageChatId
         text <- nonEmptyCommand("city")
-      } yield CitySelection(text, ReplyTo.fromChat(chat), user)
+      } yield Scenario.citySelection(text, ReplyTo.fromChat(chat), user)
       val currentCity = for {
         user <- messageUserId
         chat <- messageChatId
-      } yield ShowCurrentCity(ReplyTo.fromChat(chat), user)
+      } yield Scenario.showCurrentCity(ReplyTo.fromChat(chat), user)
       val search = for {
         user <- messageUserId
         chat <- messageChatId
         text <- messageText
-      } yield Search(text, ReplyTo.fromChat(chat), user)
+      } yield Scenario.search(text, ReplyTo.fromChat(chat), user)
       val showCard = for {
         cb <- callback
-      } yield ShowCard(
+      } yield Scenario.showCard(
         ReplyTo.fromUser(cb.from.id), ItemSerializer.from(cb.data), Some(cb.id)
       )
 
@@ -77,6 +80,6 @@ object IncomingMessageInterpreter {
         .take(1)
         .toList
         .headOption
-        .getOrElse(UnexpectedScenario)
+        .getOrElse(Scenario.unexpectedScenario)
     })
 }

@@ -7,19 +7,22 @@ import cats.~>
 import scala.concurrent.{ExecutionContext, Future}
 
 
-sealed trait Reply[T]
-
-case class Text(to: ReplyTo, text: String) extends Reply[Finish]
-
-object ReplyAlgebra {
+object Reply {
   import cats.free._
-  def text(to: ReplyTo, text: String): Free[Reply, Finish] = Free.liftF(Text(to, text))
+  sealed trait ReplyFree[T]
+
+  case class Text(to: ReplyTo, text: String) extends ReplyFree[Finish]
+
+  type ReplyA[T] = Free[ReplyFree, T]
+
+  def text(to: ReplyTo, text: String): Free[ReplyFree, Finish] = Free.liftF(Text(to, text))
 }
 
 object ReplyInterpreter {
+  import Reply._
   import cats.instances.future._
-  def apply(api: TelegramBotAPI)(implicit ec: ExecutionContext): Reply ~> Future = {
-    Lambda[Reply ~> Future] {
+  def apply(api: TelegramBotAPI)(implicit ec: ExecutionContext): ReplyFree ~> Future = {
+    Lambda[ReplyFree ~> Future] {
       case Text(to, text) => api.sendMessage(new SendMessage(to, text)).map(_ => Finish)
     }
   }
