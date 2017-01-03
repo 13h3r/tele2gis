@@ -1,10 +1,20 @@
 package bottele.free
 
+import bottele.City
 import bottele.TelegramBotAPI.{CallbackId, ReplyTo, UserId}
-import bottele.free.Reply.ReplyA
+import bottele.free.Reply.ReplyFree
+import bottele.free.Sapphire.SapphireFree
+import bottele.free.Scenario.{CitySelection, ScenarioFree, Search, ShowCard, ShowCurrentCity}
+import bottele.free.UserStorage.UserStorageFree
+import bottele.free.WebAPI.WebAPIFree
 import bottele.services.SapphireService
+import bottele.services.WebAPI.RegionInfoPayload
+import cats.data.{Coproduct, EitherT}
 import cats.free.{Free, Inject}
 import cats.~>
+
+import scala.concurrent.Future
+import scala.language.higherKinds
 
 sealed trait Finish
 object Finish extends Finish
@@ -43,27 +53,78 @@ object Scenario {
   val unexpectedScenario: Algebra[Finish] = Free.liftF(UnexpectedScenario)
 }
 
-object Testssss {
+object ExternalScenarioInterpreter {
+  def interpreter[F[_]](
+    implicit u: Inject[UserStorageFree, F],
+    s: Inject[SapphireFree, F],
+    w: Inject[WebAPIFree, F],
+    r: Inject[ReplyFree, F]
+  ) = new (Scenario.ScenarioFree ~> Free[F, ?]) {
+    import cats.free._
+    override def apply[A](fa: ScenarioFree[A]): Free[F, A] = fa match {
+      case ShowCurrentCity(reply, user) =>
+        EitherT
+          .right[Free[F, ?], String, Option[City]](UserStorage[F].getCity(user))
+          .subflatMap {
+            case None => Left("Вы еще не выбрали город")
+            case Some(city) => Right(city.id)
+          }
+          .semiflatMap(WebAPI[F].regionGetOne)
+          .subflatMap {
+            case RegionInfoPayload(region :: Nil) => Right(s"Ваш текущий город ${region.name}")
+            case RegionInfoPayload(Nil) => Left("Не удалось найти ваш город")
+          }
+          .valueOr(identity)
+          .flatMap(Reply[F].text(reply, _))
 
-  def test[M[_]](user: UserId)(
-    implicit webAPI: Inject[M, WebAPI.Algebra],
-    sapphire: Inject[M, Sapphire.Algebra],
-    userStorage: Inject[M, UserStorage.Algebra]
-  ): M[Unit] = {
+      case CitySelection(text, reply, user) =>
+        EitherT
+          .pure[Free[F, ?], String, String](text)
+          .ensure("Введите не менее двух симолов")(_.length > 2)
+          .semiflatMap(WebAPI[F].regionSearch)
+          .ensure("Увы, мы ничего не нашли")(x => x.items.nonEmpty)
+          .subflatMap { regions =>
+            if(regions.items.length == 1) {
+              Right(regions.items.head)
+            } else {
+              Left(s"Мы нашли такие города: ${regions.items.map(_.name).mkString(", ")}")
+            }
+          }
+          .semiflatMap { region =>
+            UserStorage[F].setCity(user, City(region.id.toInt)).map { _ =>
+              s"Ваш новый город ${region.name}"
+            }
+          }
+          .fold(identity, identity)
+          .flatMap(Reply[F].text(reply, _))
 
-    for {
-      city <- UserStorage.getCity(user)
-    } yield ()
-
+      //      case Search(t, reply, user) => Reply[ReplyFree].text(reply, t)
+//      case ShowCard(reply, user, _) => Reply[ReplyFree].text(reply, reply.toString)
+    }
   }
 }
 
-object ToStringInterpreter extends (Scenario.ScenarioFree ~> ReplyA) {
-  import Scenario._
-  override def apply[A](fa: ScenarioFree[A]): ReplyA[A] = fa match {
-    case ShowCurrentCity(reply, user) => Reply.text(reply, reply.toString)
-    case CitySelection(_, reply, user) => Reply.text(reply, reply.toString)
-    case Search(t, reply, user) => Reply.text(reply, t)
-    case ShowCard(reply, user, _) => Reply.text(reply, reply.toString)
+object Test {
+  type Algebra[T] = Coproduct[Coproduct[Coproduct[
+    UserStorageFree,
+    SapphireFree, ?],
+    WebAPIFree, ?],
+    ReplyFree, T]
+
+  val webApi: WebAPIFree ~> Future = ???
+  val sapphire: SapphireFree ~> Future = ???
+  val userStorage: UserStorageFree ~> Future = ???
+  val reply: ReplyFree ~> Future = ???
+
+  val finalInterpreter: Algebra ~> Future = userStorage.or(sapphire).or(webApi).or(reply)
+}
+
+object ToStringInterpreter extends (Scenario.ScenarioFree ~> Free[ReplyFree, ?]) {
+  import cats.free._
+  override def apply[A](fa: ScenarioFree[A]): Free[ReplyFree, A] = fa match {
+    case ShowCurrentCity(reply, user) => Reply[ReplyFree].text(reply, reply.toString)
+    case CitySelection(_, reply, user) => Reply[ReplyFree].text(reply, reply.toString)
+    case Search(t, reply, user) => Reply[ReplyFree].text(reply, t)
+    case ShowCard(reply, user, _) => Reply[ReplyFree].text(reply, reply.toString)
   }
 }

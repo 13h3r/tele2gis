@@ -2,20 +2,19 @@ package bottele.free
 
 import bottele.TelegramBotAPI
 import bottele.TelegramBotAPI.{ReplyTo, SendMessage}
+import cats.free.{Free, Inject}
 import cats.~>
 
 import scala.concurrent.{ExecutionContext, Future}
 
 
 object Reply {
-  import cats.free._
   sealed trait ReplyFree[T]
-
+  def apply[F[_]](implicit i: Inject[Reply.ReplyFree, F]) = new Reply[F]
   case class Text(to: ReplyTo, text: String) extends ReplyFree[Finish]
-
-  type ReplyA[T] = Free[ReplyFree, T]
-
-  def text(to: ReplyTo, text: String): Free[ReplyFree, Finish] = Free.liftF(Text(to, text))
+}
+class Reply[F[_]](implicit i: Inject[Reply.ReplyFree, F]) {
+  def text(to: ReplyTo, text: String): Free[F, Finish] = Free.inject(Reply.Text(to, text))
 }
 
 object ReplyInterpreter {

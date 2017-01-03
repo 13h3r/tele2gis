@@ -1,9 +1,10 @@
-import cats.data.{ State, StateT }
-import cats.free.{ Free, Inject }
+import cats.data.{Coproduct, State, StateT}
+import cats.free.{Free, Inject}
 import cats.implicits._
-import cats.{ Applicative, Eval, Monad }
+import cats.{Applicative, Eval, Monad}
+import io.aecor.liberator.FreeAlgebra.Aux
 import io.aecor.liberator.macros.free
-import io.aecor.liberator.{ FreeAlgebra, ProductKK }
+import io.aecor.liberator.{FreeAlgebra, ProductKK}
 
 import scala.io.StdIn
 
