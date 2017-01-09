@@ -34,7 +34,7 @@ object WebAPI {
   case class ContactGroups(contacts: List[Contact])
   case class Branch(id: String, name: String, address_name: Option[String], contact_groups: Option[Seq[ContactGroups]], point: Option[Point])
   case class BranchPayload(items: List[Branch])
-  case class Search(total: Long, items: List[Branch])
+  case class BranchSearchPayload(total: Long, items: List[Branch])
   case class RegionItem(name: String, id: String, `type`: String)
   case class RegionPayload(items: List[RegionItem])
   case class RegionInfoPayload(items: List[RegionInfo])
@@ -52,7 +52,7 @@ object WebAPI {
     implicit val branchPayloadFormat = jsonFormat1(BranchPayload)
     implicit val metaErrorFormat = jsonFormat2(MetaError)
     implicit val metaFormat = jsonFormat2(Meta)
-    implicit val searchFormat = jsonFormat2(Search)
+    implicit val searchFormat = jsonFormat2(BranchSearchPayload)
     implicit val regionFormat = jsonFormat3(RegionItem)
     implicit val regionPayloadFormat = jsonFormat1(RegionPayload)
     implicit val regionInfoFormat = jsonFormat3(RegionInfo)
@@ -61,7 +61,7 @@ object WebAPI {
     implicit val geoItemFormat = jsonFormat6(Geo)
     implicit val geoGetPayloadFormat = jsonFormat1(GeoGetPayload)
     implicit val branchResponseFormat: RootJsonFormat[Response[BranchPayload]] = jsonFormat2(Response[BranchPayload])
-    implicit val searchResponseFormat: RootJsonFormat[Response[Search]] = jsonFormat2(Response[Search])
+    implicit val searchResponseFormat: RootJsonFormat[Response[BranchSearchPayload]] = jsonFormat2(Response[BranchSearchPayload])
     implicit val regionResponseFormat: RootJsonFormat[Response[RegionPayload]] = jsonFormat2(Response[RegionPayload])
     implicit val regionInfoResponseFormat: RootJsonFormat[Response[RegionInfoPayload]] = jsonFormat2(Response[RegionInfoPayload])
     implicit val getGetResponseFormat: RootJsonFormat[Response[GeoGetPayload]] = jsonFormat2(Response[GeoGetPayload])
@@ -133,11 +133,11 @@ trait WebAPI {
     geoGet(Seq(id)).map(_.items.headOption)
   }
 
-  def regionGet(id: Int)(implicit ec: ExecutionContext): Future[RegionInfoPayload] = {
+  def regionGet(ids: Seq[Int])(implicit ec: ExecutionContext): Future[RegionInfoPayload] = {
     execute[RegionInfoPayload](
       Uri(s"http://$host/2.0/region/get").withQuery(Query(
         "key" -> key,
-        "id" -> id.toString
+        "id" -> ids.mkString(",")
       ))
     ).map {
       case Left(ApiError(404, _, _)) => RegionInfoPayload(List.empty)
@@ -148,8 +148,8 @@ trait WebAPI {
 
 
   def searchBranches(q: String, project: Int, page: Option[Int] = None, pageSize: Option[Int] = None)
-                    (implicit ec: ExecutionContext): Future[Search] = {
-    execute[Search](
+                    (implicit ec: ExecutionContext): Future[BranchSearchPayload] = {
+    execute[BranchSearchPayload](
       Uri(s"http://$host/2.0/catalog/branch/search").withQuery(Query(Map(
         "key" -> key,
         "format" -> "json",
@@ -157,7 +157,7 @@ trait WebAPI {
         "region_id" -> project.toString
       ) ++ optionToMap("page", page) ++ optionToMap("page_size", pageSize)
       ))).map {
-      case Left(ApiError(404, _, _)) => Search(0, List.empty)
+      case Left(ApiError(404, _, _)) => BranchSearchPayload(0, List.empty)
       case Left(ex) => throw ex
       case Right(result) => result
     }

@@ -97,7 +97,7 @@ object ShowCurrentCity {
         case None => Left(SendMessage(ReplyTo.fromChat(chat), "Вы еще не выбрали город"))
         case Some(city) => Right(city.id)
       }
-      .semiflatMap(webApi.regionGet)
+      .semiflatMap(id => webApi.regionGet(List(id)))
       .subflatMap {
         case RegionInfoPayload(Nil) => Left(SendMessage(ReplyTo.fromChat(chat), "Не удалось найти ваш город"))
         case RegionInfoPayload(region :: Nil) => Right(SendMessage(ReplyTo.fromChat(chat), s"Ваш текущий город ${region.name}"))
